@@ -1,7 +1,9 @@
 package com.transaction.transaction_service.service;
 
 import com.transaction.transaction_service.dto.TransactionDTO;
+import com.transaction.transaction_service.event.TransactionCreatedEvent;
 import com.transaction.transaction_service.model.Transaction;
+import com.transaction.transaction_service.producer.TransactionEventProducer;
 import com.transaction.transaction_service.repository.TransactionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -14,6 +16,9 @@ public class TransactionServiceImpl implements TransactionService{
 
     @Autowired
     private TransactionRepository transactionRepository;
+    @Autowired
+    private TransactionEventProducer transactionEventProducer;
+
 
     @Override
     public Transaction createTransaction(TransactionDTO dto) {
@@ -40,7 +45,30 @@ public class TransactionServiceImpl implements TransactionService{
             return orderSummary;
         }).collect(Collectors.toList()));
 
-        return transactionRepository.save(transaction);
+        Transaction savedTransaction = transactionRepository.save(transaction);
+        // Send event to Kafka
+        TransactionCreatedEvent event = new TransactionCreatedEvent();
+        event.setTransactionId(savedTransaction.getId());
+        event.setUserId(savedTransaction.getUserId());
+        event.setTotalAmount(savedTransaction.getTotalAmount());
+        event.setTransactionDate(savedTransaction.getTransactionDate());
+        event.setOrderIds(savedTransaction.getOrders().stream()
+                .map(Transaction.OrderSummary::getOrderId)
+                .collect(Collectors.toList()));
+
+        transactionEventProducer.sendTransactionCreatedEvent(event);
+
+        return savedTransaction;
+    }
+    @Override
+    public void updateOrderStatus(String orderId, String newStatus) {
+        List<Transaction> transactions = transactionRepository.findByOrders_OrderId(orderId);
+        transactions.forEach(transaction ->
+                transaction.getOrders().stream()
+                        .filter(order -> order.getOrderId().equals(orderId))
+                        .forEach(order -> order.setStatus(newStatus))
+        );
+        transactionRepository.saveAll(transactions);
     }
 
     @Override
