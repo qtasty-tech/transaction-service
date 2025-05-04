@@ -9,4 +9,6 @@ public interface TransactionService {
     Transaction createTransaction(TransactionDTO dto);
 
     List<Transaction> getAllTransactions();
+
+    void updateOrderStatus(String orderId, String newStatus);
 }
